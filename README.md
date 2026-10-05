@@ -69,6 +69,11 @@ ist (volle DataFrames), werden nur **neue oder geänderte** LOG-Dateien tatsäch
 (Vergleich per Datei-mtime), bereits geladene wiederverwendet — der Reload bleibt so schnell.
 Die aktuelle Auswahl bleibt erhalten, sofern die Datei noch existiert.
 
+**Parse-Cache:** Geparste LOG-Dateien werden in `.cache/logs/` zwischengespeichert (Pickle,
+etwa so groß wie die Rohdaten). Der erste Start parst alles (~8 s für 64 Logs / 6 Mio. Zeilen),
+danach startet die App in unter 1 s. Der Cache wird pro Datei automatisch verworfen, wenn sich
+mtime/Größe oder `PARSER_VERSION` in `log_txt.py` ändern; `.cache/` kann jederzeit gelöscht werden.
+
 ## Projektstruktur
 
 ```
@@ -84,6 +89,7 @@ src/emftool/
 samples/                echte NFA1000-Aufzeichnungen (LOG*.TXT, REC*.WAV)
 hf_settings.json        HF-Einstellungen je Messung (wird vom Tool angelegt)
 locations.json          Messort je Messung (wird vom Tool angelegt)
+.cache/logs/            Parse-Cache der LOG-Dateien (wird vom Tool angelegt)
 ```
 
 ## Status / offen

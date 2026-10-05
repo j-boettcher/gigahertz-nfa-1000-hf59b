@@ -27,6 +27,7 @@ from emftool.config import AnalysisConfig
 SAMPLES = Path(__file__).parent / "samples"
 HF_SETTINGS_FILE = Path(__file__).parent / "hf_settings.json"
 LOCATIONS_FILE = Path(__file__).parent / "locations.json"   # {session_name: Messort}
+PARSE_CACHE = Path(__file__).parent / ".cache" / "logs"      # geparste LOG-Dateien (Pickle)
 cfg = AnalysisConfig()
 
 # ---- Farben / Theme -------------------------------------------------------
@@ -114,7 +115,7 @@ def refresh_data() -> None:
             if not (s is not None and _file_mtime.get(name) == mt):   # neu oder geändert
                 _drop_caches(name)                                    # Events/CH4-Cache verwerfen
                 try:
-                    s = log_txt.load(SAMPLES / f"{name}.TXT")
+                    s = log_txt.load_cached(SAMPLES / f"{name}.TXT", PARSE_CACHE)
                 except Exception:  # noqa: BLE001 - defekte Datei überspringen, nicht crashen
                     continue
                 if s.n < 2:                                           # zu kurz → nicht aufnehmen

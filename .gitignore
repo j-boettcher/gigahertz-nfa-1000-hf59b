@@ -14,3 +14,6 @@ samples/*
 # Lokaler App-Zustand
 locations.json
 hf_settings.json
+
+# Parse-Cache (wird vom Tool angelegt)
+.cache/

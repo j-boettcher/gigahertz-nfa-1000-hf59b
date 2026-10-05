@@ -1,0 +1,16 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# IDE / OS
+.idea/
+.DS_Store
+
+# Persönliche Messdaten und Sprachnotizen (groß, privat)
+samples/*
+!samples/BEISPIEL-*
+
+# Lokaler App-Zustand
+locations.json
+hf_settings.json

@@ -1,0 +1,15 @@
+[project]
+name = "emftool"
+version = "0.1.0"
+description = "Auswertungstool für Gigahertz Solutions NFA1000 / HF59B / HFW59D EMF-Logs"
+requires-python = ">=3.12"
+dependencies = [
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "plotly>=5.22",
+    "dash>=2.17",
+    "matplotlib>=3.8",
+]
+
+[tool.uv]
+package = false

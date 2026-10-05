@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "emf-dashboard",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "--no-sync", "python", "app.py"],
+      "port": 8050,
+      "autoPort": true
+    }
+  ]
+}

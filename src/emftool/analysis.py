@@ -211,3 +211,22 @@ def metrics(s: Session, events: list[Event],
         "ch4_unit": s.ch4_unit,
         "windowed": windowed,
     }
+
+
+def mode_note(unit: str, mode: str) -> str | None:
+    """Hinweis zum Signalmodus (Header-Code-Zeichen 12: ``r`` = tRMS, ``p`` = Peak).
+
+    Die Zuordnung ist an echten Aufzeichnungen geprüft: kurz nacheinander am selben Ort
+    gemessene ``p``-Logs liegen im 50-Hz-Band systematisch über den ``r``-Logs (Magnetfeld
+    ×1,2–1,5 ≈ √2 wie Peak/tRMS beim Sinus, >2 kHz deutlich mehr).
+
+    SBM-2015 gilt für tRMS – Peak-Werte liegen höher und werden daran zu streng bewertet.
+    Laut Handbuch funktioniert Peak außerdem nicht mit der potentialfreien E-Feld-Messung
+    (E3D); solche Werte sind nur eingeschränkt verwertbar.
+    """
+    if mode != "Peak":
+        return None
+    note = "Peak-Modus: SBM gilt für tRMS, Bewertung zu streng."
+    if unit == "V/m":
+        note += " Peak ist mit E3D laut Handbuch nicht verwendbar."
+    return note

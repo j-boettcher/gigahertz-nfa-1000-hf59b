@@ -373,6 +373,26 @@ app.layout = html.Div(className="wrap", children=[
     ]),
     # ---- Ansicht „Punktmessung“ ----
     html.Div(id="page-pm", style={"display": "none"}, children=[
+    dcc.Download(id="pm-pdf-download"),
+    dcc.Store(id="pm-loc-saved"),   # Output-Senke für die Messort-Persistenz (Punktmessung)
+    html.Div(style={"display": "grid", "gridTemplateColumns": "minmax(0,1fr) auto",
+                    "gap": "8px", "marginBottom": "12px"}, children=[
+        dcc.Input(id="pm-location", type="text", debounce=True,
+                  placeholder="Messort (z. B. Schlafzimmer, Bett)",
+                  style={"width": "100%", "padding": "7px 10px",
+                         "fontSize": "13px", "borderRadius": "8px", "boxSizing": "border-box",
+                         "border": "1px solid " + C["border"], "background": C["surface2"],
+                         "color": C["text"]}),
+        html.Button([html.I(className="ti ti-file-type-pdf",
+                            style={"marginRight": "6px", "verticalAlign": "-2px"}),
+                     "PDF-Report"],
+                    id="pm-pdf-btn", n_clicks=0, style={
+                        "fontSize": "13px", "padding": "5px 12px", "borderRadius": "8px",
+                        "border": "1px solid " + C["border"], "background": C["surface2"],
+                        "color": C["text"], "cursor": "pointer"}),
+    ]),
+    html.Div(id="pm-mode-note", style={"fontSize": "12px", "color": C["warning"],
+                                       "margin": "-4px 0 12px"}),
     html.Div(className="card", children=[
         html.Div(className="ch", children=[
             html.H2("Punktmessung (9-/6-Punkt)"),
@@ -590,6 +610,9 @@ def _field_card(s: log_txt.Session, m: dict):
         sub.append(html.Span(f"SBM: {cat}", style={"color": cat_color}))
     if max_note:
         sub.append(html.Span(max_note, style={"color": C["muted"]}))
+    note = analysis.mode_note(s.main_unit, s.mode)
+    if note:
+        sub.append(html.Div(note, style={"color": C["warning"], "marginTop": "4px"}))
     return html.Div(className="metric", children=[
         html.Div(label + (" · Ausschnitt" if w else ""), className="lbl"),
         html.Div(f"{de(assess)} {m['main_unit']}", className="val",
@@ -836,6 +859,11 @@ def on_session(name: str):
 )
 def on_location_persist(location, name):
     """Messort der aktuellen Messung persistieren (nur bei echter Änderung schreiben)."""
+    return _persist_location(name, location)
+
+
+def _persist_location(name, location):
+    """Messort unter ``name`` in locations.json speichern (Logs: Stem, Punktmessung: Dateiname)."""
     if not name:
         raise PreventUpdate
     loc = (location or "").strip()
@@ -874,6 +902,45 @@ def render_pm(pm_name: str, band: str):
         return _blank_fig("Keine 9-/6-Punkt-Messung vorhanden. "
                           "Lege eine nicht-leere .9PM/.6PM in den samples-Ordner.")
     return pm_heatmap_figure(PM_BY_NAME[pm_name], band or "All 3D")
+
+
+@app.callback(
+    Output("pm-location", "value"), Output("pm-mode-note", "children"),
+    Input("pm-select", "value"),
+)
+def on_pm_select(pm_name):
+    """Punktmessungs-Wechsel: Messort + Hinweis zum Signalmodus laden."""
+    pm = PM_BY_NAME.get(pm_name)
+    note = analysis.mode_note(pm.main_unit, pm.mode) if pm else None
+    return LOCATIONS.get(pm_name, "") if pm else "", note or ""
+
+
+@app.callback(
+    Output("pm-loc-saved", "data"),
+    Input("pm-location", "value"),
+    State("pm-select", "value"),
+    prevent_initial_call=True,
+)
+def on_pm_location_persist(location, pm_name):
+    """Messort der Punktmessung persistieren (gleiche Datei wie bei den Logs, Key = Dateiname
+    inkl. Endung – kollidiert daher nicht mit LOG-Namen)."""
+    return _persist_location(pm_name if pm_name in PM_BY_NAME else None, location)
+
+
+@app.callback(
+    Output("pm-pdf-download", "data"),
+    Input("pm-pdf-btn", "n_clicks"),
+    State("pm-select", "value"), State("pm-location", "value"),
+    prevent_initial_call=True,
+)
+def make_pm_pdf(n, pm_name, location):
+    """PDF-Protokoll der gewählten 9-/6-Punkt-Messung."""
+    from emftool import report  # lazy, wie make_pdf
+    pm = PM_BY_NAME.get(pm_name)
+    if pm is None:
+        raise PreventUpdate
+    data = report.build_pm_pdf(pm, cfg, location=(location or "").strip())
+    return dcc.send_bytes(lambda buf: buf.write(data), f"EMF-Report_{pm.name}_{pm.kind}.pdf")
 
 
 @app.callback(

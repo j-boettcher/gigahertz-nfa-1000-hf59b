@@ -13,6 +13,7 @@ import matplotlib.dates as mdates
 import numpy as np
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.figure import Figure
+from matplotlib.patches import Rectangle
 
 from . import analysis
 from .log_txt import BAND_COLS, Session
@@ -94,7 +95,12 @@ def _page_summary(pdf, s, events, m, notes, cfg, location=""):
     cat, ccol = _sbm_cat(val, cfg.zones(m["main_unit"]))
     line("Bewertung", size=12, weight="bold", dy=0.026)
     line(f"{s.kind}  ·  {basis}: {_de(val)} {m['main_unit']}{extra}", size=10, dy=0.020)
-    line(f"SBM: {cat}" if cat else "SBM: –", size=11, color=ccol, weight="bold", dy=0.030)
+    note = analysis.mode_note(s.main_unit, s.mode)
+    if note:
+        line(f"SBM: {cat}" if cat else "SBM: –", size=11, color=ccol, weight="bold", dy=0.020)
+        line(note, size=8, color=COL["warning"], dy=0.030)
+    else:
+        line(f"SBM: {cat}" if cat else "SBM: –", size=11, color=ccol, weight="bold", dy=0.030)
 
     # Kennzahlen
     line("Kennzahlen", size=12, weight="bold", dy=0.024)
@@ -240,4 +246,131 @@ def build_pdf(s: Session, events: list, m: dict, notes: list, cfg,
     with PdfPages(buf) as pdf:
         _page_summary(pdf, s, events, m, notes, cfg, location)
         _page_charts(pdf, s, events, cfg, hf, hf_setting)
+    return buf.getvalue()
+
+
+# ---- Punktmessung (9-/6-Punkt) ---------------------------------------------
+# Heatmap-Farben wie im Dashboard (unauffällig/schwach/stark/extrem).
+PM_COLORS = ["#a8c97e", "#e6c766", "#d47a7a", "#a98fd6"]
+PM_CAT_LABELS = ["unauffällig", "schwach", "stark", "extrem"]
+
+
+def _sbm_idx(value, zones):
+    if value != value or not np.isfinite(zones[0]):
+        return None
+    return sum(value >= z for z in zones)   # 0..3
+
+
+def _pm_heatmap_ax(ax, pm, channel, cfg, title, fontsize=11):
+    """SBM-eingefärbte Heatmap eines Bands (3×3 bzw. 6×1) – Pendant zu pm_heatmap_figure."""
+    zones = cfg.zones(pm.main_unit)
+    nr, nc = pm.n_rows, pm.n_cols
+    rgb = np.ones((nr, nc, 3))                       # fehlende Punkte = weiß
+    for label, r, c in pm.points:
+        v = float(pm.df.loc[label, channel])
+        i = _sbm_idx(v, zones)
+        col = PM_COLORS[i] if i is not None else "#eeeeee"
+        rgb[r, c] = [int(col[k:k + 2], 16) / 255 for k in (1, 3, 5)]
+        txt = _de(v) if nc > 1 else f"{_de(v)} {pm.main_unit}"
+        ax.text(c, r, txt, ha="center", va="center", fontsize=fontsize, color=COL["text"])
+    ax.imshow(rgb, aspect="auto")
+    # weiße Fugen zwischen den Zellen (wie xgap/ygap im Dashboard)
+    for k in range(1, nc):
+        ax.axvline(k - 0.5, color="white", lw=4)
+    for k in range(1, nr):
+        ax.axhline(k - 0.5, color="white", lw=4)
+    xl, yl = pm.axes
+    ax.set_xticks(range(nc))
+    ax.set_xticklabels(xl[:nc], fontsize=8)
+    ax.xaxis.tick_top()
+    ax.set_yticks(range(nr))
+    ax.set_yticklabels(yl[:nr], fontsize=8)
+    ax.tick_params(length=0)
+    for sp in ax.spines.values():
+        sp.set_visible(False)
+    ax.set_title(title, fontsize=10, loc="left", pad=18)
+
+
+def _pm_legend(fig, y):
+    x = 0.07
+    for col, lbl in zip(PM_COLORS, PM_CAT_LABELS):
+        fig.patches.append(Rectangle(
+            (x, y - 0.008), 0.012, 0.009, transform=fig.transFigure, color=col))
+        fig.text(x + 0.017, y, f"SBM: {lbl}", fontsize=7.5, color=COL["muted"], va="top")
+        x += 0.15
+
+
+def build_pm_pdf(pm, cfg, location="") -> bytes:
+    """PDF-Protokoll einer 9-/6-Punkt-Messung: Seite 1 = Kopf, Bewertung, All-3D-Heatmap
+    und Wertetabelle aller Bänder; Seite 2 = Heatmap je Frequenzband."""
+    zones = cfg.zones(pm.main_unit)
+    buf = io.BytesIO()
+    with PdfPages(buf) as pdf:
+        fig = Figure(figsize=A4)
+        y = [0.965]
+
+        def line(txt, size=9, color=COL["text"], weight="normal", dy=0.021, x=0.07):
+            fig.text(x, y[0], txt, fontsize=size, color=color, weight=weight, va="top")
+            y[0] -= dy
+
+        wo = "Schlafplatz" if pm.kind == "9-Punkt" else "Arbeitsplatz"
+        line(f"EMF-Messprotokoll · {pm.kind}-Messung", size=20, weight="bold", dy=0.036)
+        if location:
+            line(f"Messort: {location}", size=12, weight="bold", color=COL["accent"], dy=0.026)
+        line(f"NFA1000 · {pm.path.name} · {wo} · {pm.main_unit} · {pm.mode}",
+             size=11, color=COL["muted"], dy=0.020)
+        line(f"Gerät: {pm.meta[:70]}", size=7.5, color=COL["muted"], dy=0.015)
+        line("Bewertung nach SBM-2015 (Baubiologie Maes / IBN)", size=7.5,
+             color=COL["muted"], dy=0.032)
+
+        # Bewertung: höchster Punkt (All 3D)
+        all3d = pm.df["All 3D"]
+        top_lbl = all3d.idxmax() if all3d.notna().any() else None
+        val = float(all3d.max()) if top_lbl is not None else float("nan")
+        cat, ccol = _sbm_cat(val, zones)
+        line("Bewertung", size=12, weight="bold", dy=0.026)
+        line(f"Höchster Punkt (All 3D): {top_lbl or '–'} · {_de(val)} {pm.main_unit}", size=10)
+        line(f"SBM: {cat}" if cat else "SBM: –", size=11, color=ccol, weight="bold", dy=0.020)
+        note = analysis.mode_note(pm.main_unit, pm.mode)
+        if note:
+            line(note, size=8, color=COL["warning"], dy=0.020)
+        y[0] -= 0.010
+
+        # All-3D-Heatmap
+        h = 0.30 if pm.n_cols > 1 else 0.34
+        ax = fig.add_axes([0.20, y[0] - h, 0.60, h - 0.03])
+        _pm_heatmap_ax(ax, pm, "All 3D", cfg, f"Räumliche Verteilung · All 3D · {pm.main_unit}")
+        y[0] -= h + 0.012
+        _pm_legend(fig, y[0])
+        y[0] -= 0.030
+
+        # Wertetabelle: Punkte × (All 3D + Bänder)
+        line(f"Messwerte je Punkt ({pm.main_unit})", size=12, weight="bold", dy=0.024)
+        cols = ["All 3D", *BAND_COLS]
+        xs = [0.07, 0.25] + [0.25 + 0.095 * (i + 1) for i in range(len(cols) - 1)]
+        fig.text(xs[0], y[0], "Punkt", fontsize=7.5, color=COL["muted"], va="top")
+        for x, c in zip(xs[1:], cols):
+            fig.text(x, y[0], c, fontsize=7.5, color=COL["muted"], va="top")
+        y[0] -= 0.017
+        for label, _r, _c in pm.points:
+            fig.text(xs[0], y[0], label, fontsize=8, va="top")
+            for x, c in zip(xs[1:], cols):
+                v = float(pm.df.loc[label, c])
+                _cat, vcol = _sbm_cat(v, zones) if np.isfinite(zones[0]) else (None, COL["text"])
+                fig.text(x, y[0], _de(v), fontsize=8, va="top", color=vcol,
+                         weight="bold" if c == "All 3D" else "normal")
+            y[0] -= 0.0165
+        pdf.savefig(fig)
+
+        # Seite 2: Heatmap je Frequenzband
+        fig = Figure(figsize=A4)
+        fig.text(0.07, 0.965, "Frequenzspezifische Verteilung", fontsize=14, weight="bold", va="top")
+        fig.text(0.07, 0.94, "Lage- und Achswerte (X/Y/Z, CH4) hängen von der Geräteausrichtung ab "
+                 "und sind nur zur Orientierung.", fontsize=7.5, color=COL["muted"], va="top")
+        axes = fig.subplots(3, 2, gridspec_kw={"left": 0.14, "right": 0.95, "top": 0.88,
+                                                "bottom": 0.06, "hspace": 0.45, "wspace": 0.45})
+        for ax, band in zip(axes.flat, BAND_COLS):
+            _pm_heatmap_ax(ax, pm, band, cfg, band, fontsize=9 if pm.n_cols > 1 else 7.5)
+        _pm_legend(fig, 0.035)
+        pdf.savefig(fig)
     return buf.getvalue()

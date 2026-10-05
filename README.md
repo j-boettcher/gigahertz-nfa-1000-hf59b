@@ -88,30 +88,50 @@ src/emftool/
   hf.py                 HF59B/D an CH4: mV→µW/m²→mV/m + Einstellungs-Persistenz
   report.py             PDF-Messprotokoll (matplotlib PdfPages)
   config.py             SBM-2015-Richtwerte + Crest-Floor, einstellbar
-samples/                echte NFA1000-Aufzeichnungen (LOG*.TXT, REC*.WAV)
+samples/                NFA1000-Aufzeichnungen (LOG*.TXT, REC*.WAV, .9PM/.6PM) – nicht im Repo,
+                        nur die BEISPIEL-Dateien
 hf_settings.json        HF-Einstellungen je Messung (wird vom Tool angelegt)
 locations.json          Messort je Messung (wird vom Tool angelegt)
 .cache/logs/            Parse-Cache der LOG-Dateien (wird vom Tool angelegt)
 ```
 
-## Status / offen
+## Status
+
+### Umgesetzt
 
 - **SBM-2015-Richtwerte** sind in `config.py` gesetzt (verifiziert an der offiziellen
   IBN/Maes-Tabelle). E-Feld wird standardmäßig **potentialfrei** bewertet (NFA1000 E3D);
   für Messungen mit Erdungskabel `efield_reference = "ground"` setzen. Die Crest-Floors
   sind reine Störunterdrückung (keine SBM-Werte) und frei einstellbar.
 - **Magnetfeld-Bewertung nach SBM-2015 über das 95. Perzentil** (Langzeit): die Feld-Kachel
-  stuft Magnetfeld-Aufzeichnungen über das 95. Perzentil ein (kurze Spitzen dominieren nicht),
-  der Max steht als Zusatz daneben. E-Feld wird weiter über den Max bewertet.
-- **PDF-Report:** Button „PDF-Report" oben rechts erzeugt ein Messprotokoll der aktuellen
-  Aufzeichnung (Kopf + SBM-Bewertung, Kennzahlen, Auffälligkeiten, Audionotizen, Feld-Zeitverlauf,
-  Band-Spektrogramm und immer auch das CH4-Diagramm — als HF µW/m² bei konfiguriertem HF, sonst
-  in nativer Einheit V/m/nT wie im Feld/CH4-Umschalter).
+  und das PDF stufen Magnetfeld-Aufzeichnungen über das 95. Perzentil ein (kurze Spitzen
+  dominieren nicht), der Max steht als Zusatz daneben. E-Feld wird über den Max bewertet.
+- **PDF-Report:** Button „PDF-Report" in der Log-Ansicht erzeugt ein Messprotokoll der
+  aktuellen Aufzeichnung (Kopf mit Messort + SBM-Bewertung, Kennzahlen, Auffälligkeiten,
+  Audionotizen, Feld-Zeitverlauf, Band-Spektrogramm und immer auch das CH4-Diagramm — als HF
+  µW/m² bei konfiguriertem HF, sonst in nativer Einheit V/m/nT wie im Feld/CH4-Umschalter).
 - **9-/6-Punkt-Heatmaps:** Die eigene Ansicht „Punktmessung" (Menü oben rechts) zeigt die räumliche
   Feldverteilung geführter Messungen (`.9PM` Schlafplatz = 3×3 Kopf/Rumpf/Füße × links/Mitte/
   rechts; `.6PM` Arbeitsplatz = Kopf/Ellbogen/Gesäß/Hände/Knie/Füße) als SBM-eingefärbte
   Heatmap, **frequenzspezifisch** (Band-Auswahl All 3D / einzelne Bänder). Das Format ist aus
   dem offiziellen Gigahertz-/NFAsoft-Handbuch abgeleitet (wie `LOG*.TXT`, aber Zeilen =
   Messpunkte). Zum Testen liegen zwei **klar benannte Beispiel­dateien** in `samples/`
-  (`BEISPIEL-Schlafplatz.9PM`, `BEISPIEL-Arbeitsplatz.6PM`) — durch echte Gerätedateien
-  ersetzen (die reale Struktur ist gegen eine echte `.9PM`/`.6PM` zu verifizieren).
+  (`BEISPIEL-Schlafplatz.9PM`, `BEISPIEL-Arbeitsplatz.6PM`).
+- **Signalmodus tRMS/Peak:** Header-Code-Zeichen 12 (`r`/`p`) wird als tRMS/Peak gelesen –
+  an den echten Logs geprüft: kurz nacheinander am selben Ort gemessene `p`-Logs liegen im
+  50-Hz-Band in allen 10 Paaren über den `r`-Logs (Magnetfeld ×1,2–1,5 ≈ √2 = Peak/tRMS beim
+  Sinus, >2 kHz deutlich mehr). Bei Peak-Logs weisen Feld-Kachel und PDF darauf hin, dass
+  SBM-2015 für tRMS gilt (Bewertung zu streng); bei E-Feld zusätzlich, dass Peak laut Handbuch
+  mit E3D (potentialfrei) nicht verwendbar ist.
+- **PDF-Report Punktmessung:** In der Ansicht „Punktmessung" erzeugt „PDF-Report" ein eigenes
+  Protokoll (Messort, Bewertung des höchsten Punkts, All-3D-Heatmap, Wertetabelle aller Bänder
+  mit SBM-Farben, Seite 2 = Heatmap je Frequenzband). Der Messort wird wie bei den Logs in
+  `locations.json` gespeichert (Key = Dateiname inkl. Endung).
+
+### Offen
+
+- **`.9PM`/`.6PM` gegen echte Gerätedatei prüfen:** Das Format stimmt mit dem Handbuch überein
+  (Textdatei, ein Wert je Punkt, Kanäle wie LOG, Reihenfolge Kopf→Füße bzw. Kopf/Ellbogen/
+  Gesäß/Hände/Knie/Füße). Eine echte, nicht-leere Datei ist aber weder öffentlich verfügbar
+  (Web/GitHub geprüft) noch in `samples/` (`LOG00017.9PM` ist leer) – sobald eine vorliegt,
+  damit gegenprüfen.

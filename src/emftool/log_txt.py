@@ -14,6 +14,7 @@ Zeichen 12 (``r``/``p``) = Signalmodus tRMS/Peak.
 from __future__ import annotations
 
 import io
+import re
 import os
 import pickle
 from dataclasses import dataclass
@@ -45,9 +46,10 @@ FIELD_UNIT = {"E": "V/m", "B": "nT", "U": "mV"}
 MODE = {"r": "tRMS", "p": "Peak"}
 
 # Bei jeder Änderung am Parse-Ergebnis erhöhen → alte Cache-Dateien werden ignoriert.
-PARSER_VERSION = 2
+PARSER_VERSION = 3
 
 _HEADER_MARK = b'"All 3D"'
+_TS_IN_META = re.compile(r"\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}")
 _TS_FORMAT = "%d.%m.%Y %H:%M:%S.%f"
 _TS_LEN = 21  # "DD.MM.YYYY HH:MM:SS.z" (nach Komma→Punkt)
 _TS_SEP = {2: ord("."), 5: ord("."), 10: ord(" "), 13: ord(":"), 16: ord(":"), 19: ord(".")}
@@ -161,6 +163,9 @@ def _parse_header(line: str) -> tuple[str, str, str, str, str]:
     meta = ""
     if "User" in line:
         meta = line.split("User", 1)[1].strip().strip('"').strip()
+        # Bei manchen Dateien ist die erste Datenzeile an den Header angehängt
+        # ("… sdc 003.07.2026 22:15:33,8;…") – Metadaten vor dem Zeitstempel abschneiden.
+        meta = _TS_IN_META.split(meta, 1)[0].strip()
     main = FIELD_UNIT.get(code[0], "?") if code else "?"
     ch4 = FIELD_UNIT.get(code[7], "?") if len(code) > 7 else "?"
     mode = MODE.get(code[11], "?") if len(code) > 11 else "?"

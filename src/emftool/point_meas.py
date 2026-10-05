@@ -7,9 +7,11 @@ Das Ergebnis wird frequenzspezifisch als Heatmap dargestellt (pro Band ein Wert 
 
 Dateiformat = wie LOG*.TXT (Header-Code + Spalten, ``;``-getrennt, Dezimal-Komma), aber die
 Datenzeilen sind ortsfeste Messpunkte statt einer Zeitreihe (Reihenfolge wie oben, laut
-Gigahertz-Solutions-/NFAsoft-Handbuch). Herunterladbare echte .9PM/.6PM-Beispiele gibt es
-nicht öffentlich; der Parser folgt dem dokumentierten Format und ist gegen eine echte
-Gerätedatei zu verifizieren.
+Gigahertz-Solutions-/NFAsoft-Handbuch). Laut Handbuch (Rev. Nov. 2024, Kap. 5.2/5.3/7.3 +
+FAQ) ist die .9PM eine mit dem Texteditor bearbeitbare Datei mit einem Wert je Punkt und
+denselben Kanälen wie die LOG-Datei (All 3D, Bänder, CH4, X/Y/Z). Herunterladbare echte
+.9PM/.6PM-Dateien gibt es nicht öffentlich (Web/GitHub 10/2026 geprüft); die einzige echte
+Datei in samples/ ist leer. Mit einer echten, nicht-leeren Gerätedatei gegenprüfen.
 """
 
 from __future__ import annotations

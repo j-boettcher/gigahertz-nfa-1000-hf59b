@@ -209,7 +209,7 @@ EMF/
 > Dash-Dashboard (Kennzahlen · Frequenzband-Zeitverlauf mit SBM-Zonen · Band-Spektrogramm ·
 > Auffälligkeiten) laufen. Damit sind Teile von Phase 1 und Phase 3 bereits erledigt.
 
-**Phase 0 – Datengrundlage:** ✅ weitgehend erledigt – `LOG*.TXT`-Format an echten Samples verifiziert (Delimiter, Zeitstempel, Header-Code für Feldtyp/Einheit/Modus, ein Wert je Kanal). Rest-offen: nicht-leere `.9PM`/`.6PM`, `r`/`p`-Bestätigung.
+**Phase 0 – Datengrundlage:** ✅ weitgehend erledigt – `LOG*.TXT`-Format an echten Samples verifiziert (Delimiter, Zeitstempel, Header-Code für Feldtyp/Einheit/Modus, ein Wert je Kanal). `r`/`p` = tRMS/Peak an Nachbar-Aufzeichnungen bestätigt (p > r, Magnetfeld ≈ √2). Rest-offen: nicht-leere echte `.9PM`/`.6PM` (öffentlich nicht verfügbar).
 
 **Phase 1 – MVP (CLI + Parser + Kern-Analysen):**
 - `log_txt.py` robust parsen (→ pandas, Parquet-Cache).

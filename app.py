@@ -81,7 +81,7 @@ def _load_locations() -> dict:
 
 
 def _ch4_has_data(s) -> bool:
-    return bool(s.df["All CH4"].notna().any() and (s.df["All CH4"].abs().max() or 0) > 0)
+    return s.ch4_has_data
 
 
 def _drop_caches(name: str) -> None:
@@ -115,7 +115,7 @@ def refresh_data() -> None:
             if not (s is not None and _file_mtime.get(name) == mt):   # neu oder geändert
                 _drop_caches(name)                                    # Events/CH4-Cache verwerfen
                 try:
-                    s = log_txt.load_cached(SAMPLES / f"{name}.TXT", PARSE_CACHE)
+                    s = log_txt.load_lazy(SAMPLES / f"{name}.TXT", PARSE_CACHE)
                 except Exception:  # noqa: BLE001 - defekte Datei überspringen, nicht crashen
                     continue
                 if s.n < 2:                                           # zu kurz → nicht aufnehmen

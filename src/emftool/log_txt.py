@@ -17,7 +17,9 @@ import io
 import re
 import os
 import pickle
-from dataclasses import dataclass
+import threading
+from collections import OrderedDict
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -46,7 +48,11 @@ FIELD_UNIT = {"E": "V/m", "B": "nT", "U": "mV"}
 MODE = {"r": "tRMS", "p": "Peak"}
 
 # Bei jeder Änderung am Parse-Ergebnis erhöhen → alte Cache-Dateien werden ignoriert.
-PARSER_VERSION = 3
+PARSER_VERSION = 4
+
+# So viele Aufzeichnungen behält :class:`Session` gleichzeitig mit Messdaten im Speicher
+# (LRU). Der Rest liegt nur als Metadaten vor und wird bei Zugriff aus dem Cache geladen.
+FRAME_CACHE_SIZE = 4
 
 _HEADER_MARK = b'"All 3D"'
 _TS_IN_META = re.compile(r"\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}")
@@ -109,31 +115,48 @@ def _parse_ts(ts: pd.Series) -> pd.DatetimeIndex:
 
 @dataclass
 class Session:
-    """Eine geladene Aufzeichnung: Zeitreihe + Metadaten aus dem Header."""
+    """Eine Aufzeichnung: Metadaten aus Header + Kennwerte, Zeitreihe über :attr:`df`.
+
+    Mit Platten-Cache (:func:`load_lazy`) hält die Session die Messdaten NICHT selbst:
+    :attr:`df` lädt sie bei Bedarf und behält nur die zuletzt benutzten
+    :data:`FRAME_CACHE_SIZE` Aufzeichnungen im Speicher. Ohne Cache (:func:`load`)
+    hängt das DataFrame direkt an der Session.
+    """
 
     path: Path
-    df: pd.DataFrame          # DatetimeIndex, Spalten = VALUE_COLS (Einheiten je main_unit/ch4_unit)
     code: str                 # 12-Zeichen-Header-Code
     main_unit: str            # Einheit der 3D-Feldkanäle ("V/m" / "nT")
     ch4_unit: str             # Einheit von CH4 ("mV" HF / "V/m" / "nT")
     mode: str                 # "tRMS" | "Peak"
     meta: str                 # roher Geräte-Metadaten-Rest des Headers
+    n: int = 0                # Anzahl Datenzeilen
+    start: pd.Timestamp | None = None
+    end: pd.Timestamp | None = None
+    ch4_has_data: bool = False  # CH4 enthält Werte ≠ 0 (für den Feld/CH4-Umschalter)
+    _df: pd.DataFrame | None = field(default=None, repr=False)
+    _cache_dir: Path | None = field(default=None, repr=False)
+    _key: tuple | None = field(default=None, repr=False)
+
+    @classmethod
+    def from_df(cls, path: Path, df: pd.DataFrame, code: str, main_unit: str,
+                ch4_unit: str, mode: str, meta: str) -> "Session":
+        ch4 = df["All CH4"] if "All CH4" in df else pd.Series(dtype=float)
+        return cls(path, code, main_unit, ch4_unit, mode, meta, n=len(df),
+                   start=df.index[0] if len(df) else None,
+                   end=df.index[-1] if len(df) else None,
+                   ch4_has_data=bool(ch4.notna().any() and (ch4.abs().max() or 0) > 0),
+                   _df=df)
+
+    @property
+    def df(self) -> pd.DataFrame:
+        """DatetimeIndex, Spalten = VALUE_COLS (Einheiten je main_unit/ch4_unit)."""
+        if self._df is not None:
+            return self._df
+        return _FRAMES.get(self)
 
     @property
     def name(self) -> str:
         return self.path.stem
-
-    @property
-    def n(self) -> int:
-        return len(self.df)
-
-    @property
-    def start(self):
-        return self.df.index[0] if self.n else None
-
-    @property
-    def end(self):
-        return self.df.index[-1] if self.n else None
 
     @property
     def duration_s(self) -> float:
@@ -179,7 +202,8 @@ def load(path: str | Path) -> Session:
         header = f.readline()
     code, main_unit, ch4_unit, mode, meta = _parse_header(header)
 
-    empty = Session(path, pd.DataFrame(columns=VALUE_COLS), code, main_unit, ch4_unit, mode, meta)
+    empty = Session.from_df(path, pd.DataFrame(columns=VALUE_COLS), code, main_unit, ch4_unit,
+                            mode, meta)
     # Dezimal-Komma einmal über den ganzen Dateiinhalt in einen Punkt wandeln (Trenner ist
     # ``;``, Kommas kommen nur als Dezimalzeichen vor) – read_csv(decimal=",") arbeitet hier
     # nicht zuverlässig, und ein spaltenweises str.replace kostete ~2/3 der Ladezeit.
@@ -210,38 +234,108 @@ def load(path: str | Path) -> Session:
         df[bad] = df[bad].apply(pd.to_numeric, errors="coerce").astype(float)
     df.index = ts
     df = df[df.index.notna()].sort_index()
-    return Session(path, df, code, main_unit, ch4_unit, mode, meta)
+    return Session.from_df(path, df, code, main_unit, ch4_unit, mode, meta)
 
 
-def load_cached(path: str | Path, cache_dir: str | Path) -> Session:
-    """Wie :func:`load`, aber mit Platten-Cache des Parse-Ergebnisses (Pickle).
-
-    Ein Treffer setzt gleiche Datei-mtime, -Größe und :data:`PARSER_VERSION` voraus;
-    sonst wird neu geparst und der Cache überschrieben. Cache-Fehler (defekt, nicht
-    beschreibbar) fallen still auf :func:`load` zurück – der Cache ist nur Beschleuniger.
-    """
-    path = Path(path)
+def _file_key(path: Path) -> tuple:
     st = path.stat()
-    key = (PARSER_VERSION, st.st_mtime_ns, st.st_size)
-    cache = Path(cache_dir) / f"{path.name}.pkl"
+    return (PARSER_VERSION, st.st_mtime_ns, st.st_size)
+
+
+def _cache_files(path: Path, cache_dir: Path) -> tuple[Path, Path]:
+    """(Messdaten, Metadaten) – getrennt, damit der Start nur die kleinen Metadaten liest."""
+    return cache_dir / f"{path.name}.pkl", cache_dir / f"{path.name}.meta.pkl"
+
+
+def _read_cache(file: Path, key: tuple):
     try:
-        with open(cache, "rb") as f:
-            cached_key, s = pickle.load(f)
-        if cached_key == key and isinstance(s, Session):
-            s.path = path
-            return s
-    except Exception:  # noqa: BLE001 - fehlend/defekt/veraltet → neu parsen
-        pass
-    s = load(path)
+        with open(file, "rb") as f:
+            cached_key, obj = pickle.load(f)
+        return obj if cached_key == key else None
+    except Exception:  # noqa: BLE001 - fehlend/defekt/veraltet → wie kein Treffer
+        return None
+
+
+def _write_cache(file: Path, key: tuple, obj) -> None:
     try:
-        cache.parent.mkdir(parents=True, exist_ok=True)
-        tmp = cache.with_suffix(f".{os.getpid()}.tmp")
+        file.parent.mkdir(parents=True, exist_ok=True)
+        # pid + Thread im Namen: parallele Writer (Flask threaded) kollidieren nicht
+        tmp = file.with_name(f"{file.name}.{os.getpid()}-{threading.get_ident()}.tmp")
         with open(tmp, "wb") as f:
-            pickle.dump((key, s), f, protocol=pickle.HIGHEST_PROTOCOL)
-        os.replace(tmp, cache)  # atomar: nie halb geschriebene Cache-Datei lesen
+            pickle.dump((key, obj), f, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(tmp, file)  # atomar: nie halb geschriebene Cache-Datei lesen
     except OSError:
-        pass
-    return s
+        pass  # Cache ist nur Beschleuniger
+
+
+def _parse_and_cache(path: Path, cache_dir: Path, key: tuple) -> Session:
+    """Datei parsen, Messdaten + Metadaten in den Cache schreiben, LRU vorwärmen."""
+    full = load(path)
+    data_file, meta_file = _cache_files(path, cache_dir)
+    _write_cache(data_file, key, full.df)
+    lite = Session(full.path, full.code, full.main_unit, full.ch4_unit, full.mode, full.meta,
+                   n=full.n, start=full.start, end=full.end, ch4_has_data=full.ch4_has_data)
+    _write_cache(meta_file, key, lite)
+    lite._cache_dir, lite._key = cache_dir, key
+    _FRAMES.put(lite, full.df)
+    return lite
+
+
+def load_lazy(path: str | Path, cache_dir: str | Path) -> Session:
+    """Wie :func:`load`, aber mit Platten-Cache und Laden der Messdaten bei Bedarf.
+
+    Liefert sofort eine Session mit Metadaten (Start/Ende/Feldart/…); die Zeitreihe wird
+    erst beim Zugriff auf :attr:`Session.df` gelesen. Cache-Treffer setzen gleiche
+    Datei-mtime, -Größe und :data:`PARSER_VERSION` voraus, sonst wird neu geparst.
+    """
+    path, cache_dir = Path(path), Path(cache_dir)
+    key = _file_key(path)
+    s = _read_cache(_cache_files(path, cache_dir)[1], key)
+    if isinstance(s, Session):
+        s.path, s._cache_dir, s._key = path, cache_dir, key
+        return s
+    return _parse_and_cache(path, cache_dir, key)
+
+
+class _FrameCache:
+    """Thread-sicherer LRU der zuletzt benutzten Messdaten (Key = Datei + Cache-Key)."""
+
+    def __init__(self, size: int):
+        self.size = size
+        self._d: OrderedDict = OrderedDict()
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def _k(s: Session):
+        return (str(s.path), s._key)
+
+    def put(self, s: Session, df: pd.DataFrame) -> None:
+        with self._lock:
+            self._d[self._k(s)] = df
+            self._d.move_to_end(self._k(s))
+            while len(self._d) > self.size:
+                self._d.popitem(last=False)
+
+    def get(self, s: Session) -> pd.DataFrame:
+        k = self._k(s)
+        with self._lock:
+            df = self._d.get(k)
+            if df is not None:
+                self._d.move_to_end(k)
+                return df
+        # Laden außerhalb des Locks (parallele Requests blockieren sich nicht gegenseitig)
+        df = _read_cache(_cache_files(s.path, s._cache_dir)[0], s._key)
+        if not isinstance(df, pd.DataFrame):
+            # Cache-Datei fehlt/defekt → neu parsen. Hat sich die Datei inzwischen geändert,
+            # passt der neue Stand nicht mehr zu den Metadaten; der nächste Reload
+            # (refresh_data) erkennt das per mtime und lädt die Session neu.
+            df = load(s.path).df
+            _write_cache(_cache_files(s.path, s._cache_dir)[0], s._key, df)
+        self.put(s, df)
+        return df
+
+
+_FRAMES = _FrameCache(FRAME_CACHE_SIZE)
 
 
 def scan(folder: str | Path) -> list[Session]:

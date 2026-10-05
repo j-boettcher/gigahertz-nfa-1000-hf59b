@@ -71,10 +71,14 @@ ist (volle DataFrames), werden nur **neue oder geänderte** LOG-Dateien tatsäch
 (Vergleich per Datei-mtime), bereits geladene wiederverwendet — der Reload bleibt so schnell.
 Die aktuelle Auswahl bleibt erhalten, sofern die Datei noch existiert.
 
-**Parse-Cache:** Geparste LOG-Dateien werden in `.cache/logs/` zwischengespeichert (Pickle,
-etwa so groß wie die Rohdaten). Der erste Start parst alles (~8 s für 64 Logs / 6 Mio. Zeilen),
-danach startet die App in unter 1 s. Der Cache wird pro Datei automatisch verworfen, wenn sich
-mtime/Größe oder `PARSER_VERSION` in `log_txt.py` ändern; `.cache/` kann jederzeit gelöscht werden.
+**Parse-Cache & Speicher:** Geparste LOG-Dateien werden in `.cache/logs/` zwischengespeichert
+(Messdaten + kleine Metadaten-Datei je Log, zusammen etwa so groß wie die Rohdaten). Der erste
+Start parst alles (~8 s für 64 Logs / 6 Mio. Zeilen), danach startet die App in ~0,6 s und liest
+dabei nur die Metadaten. Die Messdaten einer Aufzeichnung werden erst beim Öffnen geladen; im
+Speicher bleiben nur die zuletzt benutzten (`FRAME_CACHE_SIZE = 4` in `log_txt.py`) – der
+Speicherbedarf wächst also nicht mehr mit der Zahl der Logs (~110 MB nach dem Start statt ~630 MB).
+Der Cache wird pro Datei automatisch verworfen, wenn sich mtime/Größe oder `PARSER_VERSION`
+ändern; `.cache/` kann jederzeit gelöscht werden.
 
 ## Projektstruktur
 

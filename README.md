@@ -22,7 +22,9 @@ uv sync            # Python 3.12 venv + Abhängigkeiten
 uv run python app.py     # → http://127.0.0.1:8050
 ```
 
-Im Dashboard oben rechts die Aufzeichnung wählen. Unter dem Dropdown lässt sich ein
+Oben rechts schaltet ein Menü zwischen den Ansichten **Langzeit-Log** (LOG*.TXT) und
+**Punktmessung** (.9PM/.6PM) um; die Wahl bleibt im Browser gespeichert. In der Log-Ansicht
+oben die Aufzeichnung wählen. Unter dem Dropdown lässt sich ein
 **Messort** eintragen (z. B. „Schlafzimmer, Bett Kopfende"); er wird pro Messung in
 `locations.json` gespeichert und erscheint im PDF-Protokoll. Angezeigt werden: Kennzahlen,
 Frequenzband-Zeitverlauf mit SBM-Zonen, Crest-Markern und Audionotiz-Markern,
@@ -105,7 +107,7 @@ locations.json          Messort je Messung (wird vom Tool angelegt)
   Aufzeichnung (Kopf + SBM-Bewertung, Kennzahlen, Auffälligkeiten, Audionotizen, Feld-Zeitverlauf,
   Band-Spektrogramm und immer auch das CH4-Diagramm — als HF µW/m² bei konfiguriertem HF, sonst
   in nativer Einheit V/m/nT wie im Feld/CH4-Umschalter).
-- **9-/6-Punkt-Heatmaps:** Die Karte „Punktmessung (9-/6-Punkt)" zeigt die räumliche
+- **9-/6-Punkt-Heatmaps:** Die eigene Ansicht „Punktmessung" (Menü oben rechts) zeigt die räumliche
   Feldverteilung geführter Messungen (`.9PM` Schlafplatz = 3×3 Kopf/Rumpf/Füße × links/Mitte/
   rechts; `.6PM` Arbeitsplatz = Kopf/Ellbogen/Gesäß/Hände/Knie/Füße) als SBM-eingefärbte
   Heatmap, **frequenzspezifisch** (Band-Auswahl All 3D / einzelne Bänder). Das Format ist aus

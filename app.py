@@ -216,13 +216,20 @@ app.index_string = """<!DOCTYPE html><html><head>{%metas%}<title>{%title%}</titl
  .erow{display:flex;align-items:center;gap:12px;padding:9px 0;border-top:1px solid """ + C["border"] + """;}
  .erow:first-child{border-top:none;}
  .Select-control,.is-focused{border-radius:8px !important;}
+ .nav{display:flex;gap:4px;background:""" + C["surface1"] + """;padding:4px;border-radius:10px;}
+ .nav label{display:flex;align-items:center;padding:6px 14px;border-radius:7px;font-size:13px;
+   cursor:pointer;color:""" + C["muted"] + """;}
+ .nav label:has(input:checked){background:""" + C["surface2"] + """;color:""" + C["text"] + """;
+   box-shadow:0 1px 2px rgba(0,0,0,.08);}
+ .nav input{display:none;}
+ .nav i{margin-right:6px;font-size:15px;}
 </style></head><body>{%app_entry%}<footer>{%config%}{%scripts%}{%renderer%}</footer></body></html>"""
 
 
 def header():
     return html.Div(style={"display": "flex", "alignItems": "center",
                            "justifyContent": "space-between", "gap": "12px",
-                           "marginBottom": "16px"}, children=[
+                           "flexWrap": "wrap", "marginBottom": "16px"}, children=[
         html.Div(style={"display": "flex", "alignItems": "center", "gap": "10px"}, children=[
             html.I(className="ti ti-radar-2", style={"fontSize": "24px", "color": C["accent"]}),
             html.Div([
@@ -230,18 +237,33 @@ def header():
                 html.Div("NFA1000 · HF59B / HFW59D", style={"fontSize": "12px", "color": C["muted"]}),
             ]),
         ]),
-        html.Div(style={"minWidth": "340px"}, children=[
-            dcc.Dropdown(
-                id="session", clearable=False, value=_default(),
-                options=[{"label": s.label(), "value": s.name} for s in SESSIONS],
-            ),
-            dcc.Input(id="location", type="text", debounce=True,
-                      placeholder="Messort (z. B. Schlafzimmer, Bett Kopfende)",
-                      style={"width": "100%", "marginTop": "8px", "padding": "7px 10px",
-                             "fontSize": "13px", "borderRadius": "8px", "boxSizing": "border-box",
-                             "border": "1px solid " + C["border"], "background": C["surface2"],
-                             "color": C["text"]}),
-        ]),
+        # Hauptmenü: Langzeit-Logs und Punktmessungen sind getrennte Ansichten.
+        dcc.RadioItems(
+            id="page", value="log", persistence=True, className="nav",
+            options=[
+                {"label": html.Span([html.I(className="ti ti-chart-line"), "Langzeit-Log"]),
+                 "value": "log"},
+                {"label": html.Span([html.I(className="ti ti-grid-dots"), "Punktmessung"]),
+                 "value": "pm"},
+            ],
+        ),
+    ])
+
+
+def session_picker():
+    """Auswahl der Langzeit-Aufzeichnung + Messort (nur in der Log-Ansicht)."""
+    return html.Div(style={"display": "grid", "gridTemplateColumns": "minmax(0,3fr) minmax(0,2fr)",
+                           "gap": "8px", "marginBottom": "12px"}, children=[
+        dcc.Dropdown(
+            id="session", clearable=False, value=_default(),
+            options=[{"label": s.label(), "value": s.name} for s in SESSIONS],
+        ),
+        dcc.Input(id="location", type="text", debounce=True,
+                  placeholder="Messort (z. B. Schlafzimmer, Bett Kopfende)",
+                  style={"width": "100%", "padding": "7px 10px",
+                         "fontSize": "13px", "borderRadius": "8px", "boxSizing": "border-box",
+                         "border": "1px solid " + C["border"], "background": C["surface2"],
+                         "color": C["text"]}),
     ])
 
 
@@ -253,6 +275,9 @@ app.layout = html.Div(className="wrap", children=[
     dcc.Store(id="hf-saved"),      # Output-Senke für die HF-Persistenz
     dcc.Store(id="loc-saved"),     # Output-Senke für die Messort-Persistenz
     dcc.Download(id="pdf-download"),
+    # ---- Ansicht „Langzeit-Log“ ----
+    html.Div(id="page-log", children=[
+    session_picker(),
     html.Div(style={"display": "flex", "alignItems": "center",
                     "justifyContent": "space-between", "gap": "12px", "margin": "0 0 12px"},
              children=[
@@ -345,6 +370,9 @@ app.layout = html.Div(className="wrap", children=[
         ]),
         html.Div(id="events"),
     ]),
+    ]),
+    # ---- Ansicht „Punktmessung“ ----
+    html.Div(id="page-pm", style={"display": "none"}, children=[
     html.Div(className="card", children=[
         html.Div(className="ch", children=[
             html.H2("Punktmessung (9-/6-Punkt)"),
@@ -383,6 +411,7 @@ app.layout = html.Div(className="wrap", children=[
                 style={"fontSize": "12px", "color": C["muted"]})
             for col, lbl in zip(PM_COLORS, PM_CAT_LABELS)
         ]),
+    ]),
     ]),
     html.Div("Bewertung nach SBM-2015 (Baubiologie Maes / IBN) · E-Feld = potentialfrei · "
              "Magnetfeld = 95. Perzentil (Langzeit) · Schwellen in config.py einstellbar.",
@@ -1020,6 +1049,22 @@ app.clientside_callback(
     Output("reset-dummy", "data"),
     Input("reset-zoom", "n_clicks"),
     prevent_initial_call=True,
+)
+
+
+# Hauptmenü: Ansichten nur ein-/ausblenden (Komponenten bleiben gemountet, Zustand bleibt
+# erhalten). Danach ein resize auslösen, damit die zuvor versteckten Graphen ihre Breite
+# neu berechnen.
+app.clientside_callback(
+    """
+    function(page) {
+        setTimeout(function() { window.dispatchEvent(new Event('resize')); }, 0);
+        return [{display: page === 'pm' ? 'none' : 'block'},
+                {display: page === 'pm' ? 'block' : 'none'}];
+    }
+    """,
+    Output("page-log", "style"), Output("page-pm", "style"),
+    Input("page", "value"),
 )
 
 
